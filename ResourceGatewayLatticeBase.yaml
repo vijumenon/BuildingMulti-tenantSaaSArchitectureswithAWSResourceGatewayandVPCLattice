@@ -59,13 +59,75 @@ Parameters:
     - t3.xlarge 
     - t3.2xlarge 
 
-
   LatestAmiId:
     Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
     Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
 
-  
 Resources:
+  GetAZsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DescribeAZs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 
+                  - ec2:DescribeAvailabilityZones
+                Resource: '*'
+
+  GetAZsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Role: !GetAtt GetAZsRole.Arn
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import cfnresponse
+
+          def handler(event, context):
+              try:
+                  if event['RequestType'] in ['Create', 'Update']:
+                      ec2 = boto3.client('ec2')
+                      response = ec2.describe_availability_zones(
+                          Filters=[{'Name': 'zone-type', 'Values': ['availability-zone']}]
+                      )
+                      
+                      # Create a list of tuples with (ZoneId, ZoneName) and sort by ZoneId
+                      az_pairs = [(az['ZoneId'], az['ZoneName']) for az in response['AvailabilityZones']]
+                      sorted_azs = sorted(az_pairs, key=lambda x: x[0])
+            
+                      # Return the first two AZ names
+                      responseData = {
+                          'AZ1': sorted_azs[0][1],
+                          'AZ2': sorted_azs[1][1]
+                      }
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
+                  else:
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+              except Exception as e:
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)})
+      Runtime: python3.9
+      Timeout: 30
+
+  AZInfo:
+    Type: Custom::AZInfo
+    Properties:
+      ServiceToken: !GetAtt GetAZsFunction.Arn
+      Region: !Ref 'AWS::Region'
+
   ################# Create VPCs
   Vpc1:
     Type: AWS::EC2::VPC
@@ -96,7 +158,7 @@ Resources:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref Vpc1
-      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      AvailabilityZone: !GetAtt AZInfo.AZ1
       CidrBlock: !Ref Vpc1PublicSubnet1CIDR
       MapPublicIpOnLaunch: true
       Tags:
@@ -107,7 +169,7 @@ Resources:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref Vpc1
-      AvailabilityZone: !Select [ 0, !GetAZs  '' ]
+      AvailabilityZone: !GetAtt AZInfo.AZ1
       CidrBlock: !Ref Vpc1PrivateSubnet1CIDR
       MapPublicIpOnLaunch: false
       Tags:
@@ -118,7 +180,7 @@ Resources:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref Vpc1
-      AvailabilityZone: !Select [ 1, !GetAZs  '' ]
+      AvailabilityZone: !GetAtt AZInfo.AZ2
       CidrBlock: !Ref Vpc1PrivateSubnet2CIDR
       MapPublicIpOnLaunch: false
       Tags:
@@ -189,7 +251,6 @@ Resources:
       RouteTableId: !Ref Vpc1PrivateRouteTable
       SubnetId: !Ref Vpc1PrivateSubnet2
 
- 
 ################## SSM Role:
   SubnetRole:
     Type: AWS::IAM::Role
@@ -244,7 +305,6 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub ${EnvironmentName}-bastion
-
 
   TCPServerSecurityGroup:
     Type: AWS::EC2::SecurityGroup
