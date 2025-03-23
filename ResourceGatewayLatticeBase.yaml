@@ -104,11 +104,11 @@ Resources:
                       response = ec2.describe_availability_zones(
                           Filters=[{'Name': 'zone-type', 'Values': ['availability-zone']}]
                       )
-                      
-                      # Create a list of tuples with (ZoneId, ZoneName) and sort by ZoneId
                       az_pairs = [(az['ZoneId'], az['ZoneName']) for az in response['AvailabilityZones']]
                       sorted_azs = sorted(az_pairs, key=lambda x: x[0])
-            
+                      # Sort AZs by their names to ensure consistent ordering
+                      # azs = sorted([az['ZoneName'] for az in response['AvailabilityZones']])
+                      
                       # Return the first two AZ names
                       responseData = {
                           'AZ1': sorted_azs[0][1],
@@ -297,9 +297,9 @@ Resources:
       SecurityGroupIds: 
         - !Ref BastionSecurityGroup
         - !Ref LocalTrafficSecurityGroup
-      UserData:
-        Fn::Base64: !Sub |
-          #!/bin/bash -xe
+      UserData: 
+        Fn::Base64: |
+          #!/bin/bash
           yum update -y
           yum install -y telnet
       Tags:
@@ -341,35 +341,50 @@ Resources:
       SecurityGroupIds: 
         - !Ref TCPServerSecurityGroup
         - !Ref LocalTrafficSecurityGroup
-      UserData:
-        Fn::Base64: !Sub |
-          #!/bin/bash -xe
+      UserData: 
+        Fn::Base64: |
+          #!/bin/bash
+          exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
           yum update -y
           yum install -y python3
           yum install -y telnet
-
-          # Create the TCP server script
-          cat << 'EOF' > /opt/tcp_server.py
+          # Create TCP server script
+          mkdir -p /opt
+          cat > /opt/tcp_server.py << 'EOL'
           import socket
+          import logging
+          import sys
+          
+          logging.basicConfig(
+              level=logging.INFO,
+              format='%(asctime)s [%(levelname)s] %(message)s',
+              handlers=[
+                  logging.FileHandler('/var/log/tcp-server.log'),
+                  logging.StreamHandler(sys.stdout)
+              ]
+          )
 
           def tcp_server():
               server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
               server.bind(('0.0.0.0', 1234))
               server.listen(1)
-              print("Server listening on port 1234")
-              
+              logging.info('Server listening on port 1234')
               while True:
                   conn, addr = server.accept()
-                  print(f"Connection from {addr}")
-                  conn.send(b"Connection successful!\n")
+                  logging.info(f'Connection from {addr}')
+                  conn.send(b'Connection successful!\n')
                   conn.close()
 
-          if __name__ == "__main__":
-              tcp_server()
-          EOF
+          if __name__ == '__main__':
+              try:
+                  tcp_server()
+              except Exception as e:
+                  logging.error(f'Server error: {e}')
+                  sys.exit(1)
+          EOL
 
-          # Create systemd service file
-          cat << 'EOF' > /etc/systemd/system/tcp-server.service
+          # Create systemd service
+          cat > /etc/systemd/system/tcp-server.service << 'EOL'
           [Unit]
           Description=TCP Server
           After=network.target
@@ -378,20 +393,31 @@ Resources:
           Type=simple
           ExecStart=/usr/bin/python3 /opt/tcp_server.py
           Restart=always
-          User=nobody
+          User=root
+          StandardOutput=append:/var/log/tcp-server.log
+          StandardError=append:/var/log/tcp-server.log
 
           [Install]
           WantedBy=multi-user.target
-          EOF
+          EOL
 
-          # Set proper permissions
-          chmod 644 /opt/tcp_server.py
+          # Set permissions and start service
+          chmod 755 /opt/tcp_server.py
           chmod 644 /etc/systemd/system/tcp-server.service
-
-          # Enable and start the service
+          touch /var/log/tcp-server.log
+          chmod 644 /var/log/tcp-server.log
+          
           systemctl daemon-reload
           systemctl enable tcp-server
           systemctl start tcp-server
+
+          # Verify service is running
+          sleep 5
+          if ! netstat -tuln | grep -q ':1234 '; then
+              echo 'TCP server is not listening on port 1234'
+              exit 1
+          fi
+          echo 'Service started successfully and listening on port 1234'
 
       Tags:
         - Key: Name
