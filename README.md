@@ -1,8 +1,8 @@
 # Secure Customer Resource Access in Multi-tenant SaaS with VPC Lattice
 
-This repo is to support the blog post at -# Secure Customer Resource Access in Multi-tenant SaaS with VPC Lattice
+This repo is to support the blog post at TBD Secure Customer Resource Access in Multi-tenant SaaS with VPC Lattice
 
-This repo is to support the blog post at https://amazon.awsapps.com/workdocs-amazon/index.html#/document/fc04cd32d9a20c623cedb051bde7ef2991e7ddcd88f34e06513ccf9bca729dd7 . Below are the steps to deploy the solution in your own AWS environment.
+Below are the steps to deploy the solution in your own AWS environment.
 
 ## Prerequisites
 
