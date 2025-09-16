@@ -1,0 +1,486 @@
+# This is an AWS CloudFormation template
+AWSTemplateFormatVersion: '2010-09-09'
+Description: This template deploys one VPCs, 3 subnets (1 - public, 2 - Private), IGW, NATGW, Public RT, Private RT, SSM Role for EC2 and a Security Group
+
+Parameters:
+  EnvironmentName:
+    Description: An environment name that is prefixed to resource names
+    Type: String
+    Default: Service-Provider
+  
+  Vpc1Name:
+    Description: Please enter the name for this VPC
+    Type: String
+    Default: Service-Provider-VPC
+
+  Vpc1CIDR:
+    AllowedPattern: "^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\\/(1[6-9]|2[0-8]))$"
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16-28
+    Description: Please enter the IP range (CIDR notation) for this VPC
+    Type: String
+    Default: 10.0.0.0/16
+
+  Vpc1PrivateSubnet1CIDR:
+    AllowedPattern: "^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\\/(1[6-9]|2[0-8]))$"
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16-28
+    Description: Please enter the IP range (CIDR notation) for the private subnet in the first Availability Zone
+    Type: String
+    Default: 10.0.1.0/24
+
+  Vpc1PrivateSubnet2CIDR:
+    AllowedPattern: "^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\\/(1[6-9]|2[0-8]))$"
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16-28
+    Description: Please enter the IP range (CIDR notation) for the private subnet in the first Availability Zone
+    Type: String
+    Default: 10.0.2.0/24
+
+  Vpc1PublicSubnet1CIDR:
+    AllowedPattern: "^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\\/(1[6-9]|2[0-8]))$"
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16-28
+    Description: Please enter the IP range (CIDR notation) for the public subnet in the first Availability Zone
+    Type: String
+    Default: 10.0.3.0/24
+
+  InstanceType:
+    Description: EC2 instance type
+    Type: String
+    Default: t3.micro
+    AllowedValues:
+    - t2.nano 
+    - t2.micro 
+    - t2.small 
+    - t2.medium 
+    - t2.large 
+    - t2.xlarge 
+    - t2.2xlarge 
+    - t3.nano 
+    - t3.micro 
+    - t3.small 
+    - t3.medium 
+    - t3.large 
+    - t3.xlarge 
+    - t3.2xlarge 
+
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+
+  SubnetRoleNameSuffix:
+    Type: String
+    Default: subnet-role
+    Description: Suffix for the SSM IAM role name
+
+Resources:
+  GetAZsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DescribeAZs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 
+                  - ec2:DescribeAvailabilityZones
+                Resource: '*'
+
+  GetAZsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Role: !GetAtt GetAZsRole.Arn
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import cfnresponse
+
+          def handler(event, context):
+              try:
+                  if event['RequestType'] in ['Create', 'Update']:
+                      ec2 = boto3.client('ec2')
+                      response = ec2.describe_availability_zones(
+                          Filters=[{'Name': 'zone-type', 'Values': ['availability-zone']}]
+                      )
+                      az_pairs = [(az['ZoneId'], az['ZoneName']) for az in response['AvailabilityZones']]
+                      sorted_azs = sorted(az_pairs, key=lambda x: x[0])
+                      # Sort AZs by their names to ensure consistent ordering
+                      # azs = sorted([az['ZoneName'] for az in response['AvailabilityZones']])
+                      
+                      # Return the first two AZ names
+                      responseData = {
+                          'AZ1': sorted_azs[0][1],
+                          'AZ2': sorted_azs[1][1]
+                      }
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
+                  else:
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+              except Exception as e:
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)})
+      Runtime: python3.9
+      Timeout: 30
+
+  AZInfo:
+    Type: Custom::AZInfo
+    Properties:
+      ServiceToken: !GetAtt GetAZsFunction.Arn
+      Region: !Ref 'AWS::Region'
+
+  ################# Create VPCs
+  Vpc1:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref Vpc1CIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Ref Vpc1Name
+
+  ################# Create Internet Gateways and attachments          
+  Vpc1InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Ref Vpc1Name
+
+  Vpc1InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref Vpc1InternetGateway
+      VpcId: !Ref Vpc1
+ 
+  ################# Create subnets
+  Vpc1PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc1
+      AvailabilityZone: !GetAtt AZInfo.AZ1
+      CidrBlock: !Ref Vpc1PublicSubnet1CIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${Vpc1Name} Public Subnet
+
+  Vpc1PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc1
+      AvailabilityZone: !GetAtt AZInfo.AZ1
+      CidrBlock: !Ref Vpc1PrivateSubnet1CIDR
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${Vpc1Name} Private Subnet1
+
+  Vpc1PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc1
+      AvailabilityZone: !GetAtt AZInfo.AZ2
+      CidrBlock: !Ref Vpc1PrivateSubnet2CIDR
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${Vpc1Name} Private Subnet2
+  
+  ################# Create NAT Gateways
+  Vpc1NatGateway1EIP:
+    Type: AWS::EC2::EIP
+    DependsOn: Vpc1InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+
+  Vpc1NatGateway1:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt Vpc1NatGateway1EIP.AllocationId
+      SubnetId: !Ref Vpc1PublicSubnet1
+
+  ################# Create Route Tables
+  Vpc1PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc1
+      Tags:
+        - Key: Name
+          Value: !Sub ${Vpc1Name} Public RT
+ 
+  Vpc1PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc1
+      Tags:
+        - Key: Name
+          Value: !Sub ${Vpc1Name} Private RT
+
+  ################# Create Routes and Associations
+  Vpc1DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: Vpc1InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref Vpc1PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref Vpc1InternetGateway
+
+  Vpc1PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref Vpc1PublicRouteTable
+      SubnetId: !Ref Vpc1PublicSubnet1
+
+  Vpc1DefaultPrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref Vpc1PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref Vpc1NatGateway1
+
+  Vpc1PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref Vpc1PrivateRouteTable
+      SubnetId: !Ref Vpc1PrivateSubnet1
+
+  Vpc1PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref Vpc1PrivateRouteTable
+      SubnetId: !Ref Vpc1PrivateSubnet2
+
+################## SSM Role:
+  SubnetRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AWS::StackName}-${SubnetRoleNameSuffix}"
+      Path: "/"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      
+  SubnetInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+        - !Ref SubnetRole
+
+  BastionSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Bastion Host
+      VpcId: !Ref Vpc1
+      SecurityGroupIngress: []  # No inbound rules needed for SSM
+      SecurityGroupEgress:
+        - Description: "Required for secure repository and AWS service access"
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - Description: "Required for standard yum repository"
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - Description: "Required for DNS lookup"
+          IpProtocol: udp
+          FromPort: 53
+          ToPort: 53
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-bastion-sg
+
+  # Bastion Host
+  BastionHost:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref LatestAmiId
+      SubnetId: !Ref Vpc1PrivateSubnet1
+      IamInstanceProfile: !Ref SubnetInstanceProfile
+      SecurityGroupIds: 
+        - !Ref BastionSecurityGroup
+        - !Ref LocalTrafficSecurityGroup
+      UserData: 
+        Fn::Base64: |
+          #!/bin/bash
+          yum update -y
+          yum install -y telnet
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-bastion
+
+  TCPServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for TCP server
+      VpcId: !Ref Vpc1
+      SecurityGroupIngress:
+        - Description: "Allow inbound TCP traffic on port 1234 from VPC CIDR"
+          IpProtocol: tcp
+          FromPort: 1234
+          ToPort: 1234
+          CidrIp: !Ref Vpc1CIDR
+      SecurityGroupEgress:
+        - Description: "Required for secure repository and AWS service access"
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - Description: "Required for standard yum repository"
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - Description: "Required for DNS lookup"
+          IpProtocol: udp
+          FromPort: 53
+          ToPort: 53
+          CidrIp: 0.0.0.0/0
+        
+  LocalTrafficSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for local VPC traffic
+      VpcId: !Ref Vpc1
+      SecurityGroupIngress:
+        - Description: "Allow all inbound traffic from VPC CIDR"
+          IpProtocol: -1  # All protocols
+          FromPort: -1    # All ports
+          ToPort: -1      # All ports
+          CidrIp: !Ref Vpc1CIDR  # VPC CIDR range
+      SecurityGroupEgress:
+        - Description: "Allow all outbound traffic within VPC"
+          IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: !Ref Vpc1CIDR
+      Tags:
+        - Key: Name
+          Value: localTraffic
+
+  TCPServerInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref LatestAmiId
+      SubnetId: !Ref Vpc1PrivateSubnet1
+      IamInstanceProfile: !Ref SubnetInstanceProfile
+      SecurityGroupIds: 
+        - !Ref TCPServerSecurityGroup
+        - !Ref LocalTrafficSecurityGroup
+      UserData: 
+        Fn::Base64: |
+          #!/bin/bash
+          exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+          yum update -y
+          yum install -y python3
+          yum install -y telnet
+          # Create TCP server script
+          mkdir -p /opt
+          cat > /opt/tcp_server.py << 'EOL'
+          import socket
+          import logging
+          import sys
+          
+          logging.basicConfig(
+              level=logging.INFO,
+              format='%(asctime)s [%(levelname)s] %(message)s',
+              handlers=[
+                  logging.FileHandler('/var/log/tcp-server.log'),
+                  logging.StreamHandler(sys.stdout)
+              ]
+          )
+
+          def tcp_server():
+              server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+              server.bind(('0.0.0.0', 1234))
+              server.listen(1)
+              logging.info('Server listening on port 1234')
+              while True:
+                  conn, addr = server.accept()
+                  logging.info(f'Connection from {addr}')
+                  conn.send(b'Connection successful!\n')
+                  conn.close()
+
+          if __name__ == '__main__':
+              try:
+                  tcp_server()
+              except Exception as e:
+                  logging.error(f'Server error: {e}')
+                  sys.exit(1)
+          EOL
+
+          # Create systemd service
+          cat > /etc/systemd/system/tcp-server.service << 'EOL'
+          [Unit]
+          Description=TCP Server
+          After=network.target
+
+          [Service]
+          Type=simple
+          ExecStart=/usr/bin/python3 /opt/tcp_server.py
+          Restart=always
+          User=root
+          StandardOutput=append:/var/log/tcp-server.log
+          StandardError=append:/var/log/tcp-server.log
+
+          [Install]
+          WantedBy=multi-user.target
+          EOL
+
+          # Set permissions and start service
+          chmod 755 /opt/tcp_server.py
+          chmod 644 /etc/systemd/system/tcp-server.service
+          touch /var/log/tcp-server.log
+          chmod 644 /var/log/tcp-server.log
+          
+          systemctl daemon-reload
+          systemctl enable tcp-server
+          systemctl start tcp-server
+
+          # Verify service is running
+          sleep 5
+          if ! netstat -tuln | grep -q ':1234 '; then
+              echo 'TCP server is not listening on port 1234'
+              exit 1
+          fi
+          echo 'Service started successfully and listening on port 1234'
+
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-TCP-Server
+
+Outputs:
+  Vpc1PrivateSubnet1:
+    Value: !Ref Vpc1PrivateSubnet1
+    Export:
+      Name: "Vpc1PrivateSubnet1"
+  Vpc1PrivateSubnet2:
+    Value: !Ref Vpc1PrivateSubnet2
+    Export:
+      Name: "Vpc1PrivateSubnet2"
+  LocalTrafficSecurityGroup:
+    Description: ID of the Local Traffic Security Group
+    Value: !Ref LocalTrafficSecurityGroup
+    Export:
+      Name: "LocalTrafficSecurityGroup"
