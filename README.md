@@ -43,7 +43,7 @@ Following resources are required to walk through the steps:
 
 #### Setting up the customer side
 
-Let's begin with setting up the customer side by creating a Resource Gateway, then creating a Resource Configuration using this newly created Resource Gateway and resource/s to be exposed to the SaaS provider. First download this CloudFormation template ([RGBlog.yaml](https://gitlab.aws.dev/vijaym/LatticeResourceGWBlog/-/raw/main/RGBlog.yaml?ref_type=heads&inline=false)) which we will use to deploy the base infrastructure in all accounts.
+Let's begin with setting up the customer side by creating a Resource Gateway, then creating a Resource Configuration using this newly created Resource Gateway and resource/s to be exposed to the SaaS provider. First download this CloudFormation template ([RGBlog.yaml](https://github.com/vijumenon/BuildingMulti-tenantSaaSArchitectureswithAWSResourceGatewayandVPCLattice/blob/main/RGBlog.yaml)) which we will use to deploy the base infrastructure in all accounts.
 
 
 ##### Customer 1:
@@ -916,7 +916,7 @@ This concludes the implementation steps for one Service Network per customer opt
 
 #### Setting up the customer side
 
-Let's begin with setting up the customer side by creating a Resource Gateway, then creating a Resource Configuration using this newly created Resource Gateway and resource/s to be exposed to the SaaS provider. First download this CloudFormation template ([RGBlog.yaml](https://gitlab.aws.dev/vijaym/LatticeResourceGWBlog/-/raw/main/RGBlog.yaml?ref_type=heads&inline=false)) which we will use to deploy the base infrastructure in all accounts.
+Let's begin with setting up the customer side by creating a Resource Gateway, then creating a Resource Configuration using this newly created Resource Gateway and resource/s to be exposed to the SaaS provider. First download this CloudFormation template ([RGBlog.yaml](https://github.com/vijumenon/BuildingMulti-tenantSaaSArchitectureswithAWSResourceGatewayandVPCLattice/blob/main/RGBlog.yaml)) which we will use to deploy the base infrastructure in all accounts.
 
 
 
@@ -1771,7 +1771,7 @@ Following resources are required to walk through the steps:
 
 #### Setting up the customer side
 
-Let's begin with setting up the customer side by creating a Resource Gateway, then creating a Resource Configuration using this newly created Resource Gateway and resource/s to be exposed to the SaaS provider. First download this CloudFormation template ([RGBlog.yaml](https://gitlab.aws.dev/vijaym/LatticeResourceGWBlog/-/raw/main/RGBlog.yaml?ref_type=heads&inline=false)) which we will use to deploy the base infrastructure in all accounts.
+Let's begin with setting up the customer side by creating a Resource Gateway, then creating a Resource Configuration using this newly created Resource Gateway and resource/s to be exposed to the SaaS provider. First download this CloudFormation template ([RGBlog.yaml](https://github.com/vijumenon/BuildingMulti-tenantSaaSArchitectureswithAWSResourceGatewayandVPCLattice/blob/main/RGBlog.yaml)) which we will use to deploy the base infrastructure in all accounts.
 
 
 ##### Customer 1:
@@ -2644,7 +2644,7 @@ This concludes the implementation steps for one Service Network per customer opt
 
 #### Setting up the customer side
 
-Let's begin with setting up the customer side by creating a Resource Gateway, then creating a Resource Configuration using this newly created Resource Gateway and resource/s to be exposed to the SaaS provider. First download this CloudFormation template ([RGBlog.yaml](https://gitlab.aws.dev/vijaym/LatticeResourceGWBlog/-/raw/main/RGBlog.yaml?ref_type=heads&inline=false)) which we will use to deploy the base infrastructure in all accounts.
+Let's begin with setting up the customer side by creating a Resource Gateway, then creating a Resource Configuration using this newly created Resource Gateway and resource/s to be exposed to the SaaS provider. First download this CloudFormation template ([RGBlog.yaml](https://github.com/vijumenon/BuildingMulti-tenantSaaSArchitectureswithAWSResourceGatewayandVPCLattice/blob/main/RGBlog.yaml)) which we will use to deploy the base infrastructure in all accounts.
 
 
 
